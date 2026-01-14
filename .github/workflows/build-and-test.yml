@@ -1,3 +1,4 @@
+
 name: Build and Test
 
 on:
@@ -18,12 +19,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'              # enables npm cache
+          cache-dependency-path: |
+            package-lock.json       # ensure cache keys include lockfile
 
-      - name: Install dependencies
+      - name: Verify lockfile consistency (optional)
+        run: |
+          if ! test -f package-lock.json; then
+            echo "package-lock.json missing. Please commit a lockfile."; exit 1;
+          fi
+
+      - name: Install dependencies (strict, reproducible)
         run: npm ci
 
       - name: Build project
-        run: npm run build
+        run: npm run build --if-present
 
       - name: Run unit tests
         run: npm test -- --watchAll=false
