@@ -20,7 +20,7 @@ jobs:
       uses: actions/setup-node@v4
       with:
         node-version: "18.0.0"
-        cache: 'npm
+        cache: 'npm'
     - run: echo "Hello World"
     - run: npm ci
     - run: npm run build --if-present
