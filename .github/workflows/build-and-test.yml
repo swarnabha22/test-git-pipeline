@@ -1,5 +1,5 @@
 
-name: Build and Test (Node)
+name: Build and Test (Node root)
 
 on:
   push:
@@ -16,38 +16,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --- Diagnostics (optional but very helpful) ---
       - name: Debug workspace
         run: |
           echo "Workspace:" && pwd
-          echo "Listing files:" && ls -la
-          echo "package.json present?"; test -f package.json && echo "yes" || echo "::error::package.json NOT found"; 
-          echo "package-lock.json present?"; test -f package-lock.json && echo "yes" || echo "::warning::package-lock.json NOT found (cache may be disabled)"
+          echo "Files:" && ls -la
+          echo "package.json present?"; test -f package.json && echo "yes" || echo "::error::package.json NOT found"
+          echo "package-lock.json present?"; test -f package-lock.json && echo "yes" || echo "::warning::package-lock.json NOT found"
 
-      # Fail fast if lockfile is missing (keeps npm ci predictable)
-      - name: Verify lockfile exists
+      # Decide whether to use caching based on lockfile presence
+      - name: Detect lockfile
+        id: lockfile
         run: |
-          if [ ! -f package-lock.json ]; then
-            echo "::error::package-lock.json not found at repo root. Commit your lockfile or switch to npm install."
-            exit 1
+          if [ -f package-lock.json ]; then
+            echo "has_lockfile=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_lockfile=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Node.js
+      - name: Set up Node.js (with cache if lockfile exists)
         uses: actions/setup-node@v4
         with:
-          node-version: '20'              # Node 20 includes npm v10
-          cache: 'npm'                    # enable npm cache
-          cache-dependency-path: |
-            package-lock.json             # must exist or caching errors out
+          node-version: '20'
+          # Enable cache only when lockfile is present to avoid "paths were not resolved"
+          cache: ${{ steps.lockfile.outputs.has_lockfile == 'true' && 'npm' || '' }}
+          cache-dependency-path: ${{ steps.lockfile.outputs.has_lockfile == 'true' && 'package-lock.json' || '' }}
 
       - name: Show Node & npm versions
         run: |
           node -v
           npm -v
 
-      # Strict, reproducible install. Will fail if package.json & lockfile are out of sync.
-      - name: Install dependencies
-        run: npm ci
+      # Prefer npm ci when lockfile exists; fallback to npm install if not
+      - name: Install dependencies (strict if lockfile, otherwise fallback)
+        run: |
+          if [ -f package-lock.json ]; then
+            echo "Using npm ci (lockfile found)"
+            npm ci
+          else
+            echo "Using npm install (no lockfile)"
+            npm install
+          fi
 
       - name: Build project
         run: npm run build --if-present
@@ -55,7 +63,6 @@ jobs:
       - name: Run unit tests
         run: npm test -- --watchAll=false
 
-      # Optional: upload build output if you produce one (adjust path)
       - name: Upload build artifacts (optional)
         if: ${{ success() && hashFiles('dist/**') != '' }}
         uses: actions/upload-artifact@v4
