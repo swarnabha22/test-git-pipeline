@@ -1,11 +1,12 @@
 
-name: Build and Test
+name: Build and Test (Node)
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -15,21 +16,37 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # --- Diagnostics (optional but very helpful) ---
+      - name: Debug workspace
+        run: |
+          echo "Workspace:" && pwd
+          echo "Listing files:" && ls -la
+          echo "package.json present?"; test -f package.json && echo "yes" || echo "::error::package.json NOT found"; 
+          echo "package-lock.json present?"; test -f package-lock.json && echo "yes" || echo "::warning::package-lock.json NOT found (cache may be disabled)"
+
+      # Fail fast if lockfile is missing (keeps npm ci predictable)
+      - name: Verify lockfile exists
+        run: |
+          if [ ! -f package-lock.json ]; then
+            echo "::error::package-lock.json not found at repo root. Commit your lockfile or switch to npm install."
+            exit 1
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'              # enables npm cache
+          node-version: '20'              # Node 20 includes npm v10
+          cache: 'npm'                    # enable npm cache
           cache-dependency-path: |
-            package-lock.json       # ensure cache keys include lockfile
+            package-lock.json             # must exist or caching errors out
 
-      - name: Verify lockfile consistency (optional)
+      - name: Show Node & npm versions
         run: |
-          if ! test -f package-lock.json; then
-            echo "package-lock.json missing. Please commit a lockfile."; exit 1;
-          fi
+          node -v
+          npm -v
 
-      - name: Install dependencies (strict, reproducible)
+      # Strict, reproducible install. Will fail if package.json & lockfile are out of sync.
+      - name: Install dependencies
         run: npm ci
 
       - name: Build project
@@ -37,3 +54,12 @@ jobs:
 
       - name: Run unit tests
         run: npm test -- --watchAll=false
+
+      # Optional: upload build output if you produce one (adjust path)
+      - name: Upload build artifacts (optional)
+        if: ${{ success() && hashFiles('dist/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-dist
+          path: dist
+          if-no-files-found: ignore
